@@ -2,126 +2,244 @@
   "$schema": "https://schema.management.azure.com/schemas/2015-01-01/deploymentTemplate.json#",
   "contentVersion": "1.0.0.0",
   "parameters": {
-    "webAppName": {
+    "adminUsername": {
       "type": "string",
-      "defaultValue": "Free Tier WebApp Name",
       "metadata": {
-        "description": "That name is the name of our application. It has to be unique. Type a name followed by your resource group name. (<name>-<resourceGroupName>)"
+        "description": "Username for the Virtual Machine."
+      }
+    },
+    "adminPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Password for the Virtual Machine."
+      }
+    },
+    "vmName": {
+      "type": "string",
+      "metadata": {
+        "description": "Unique name for the new Virtual Machine."
+      }
+    },
+    "dnsLabelPrefix": {
+      "type": "string",
+      "metadata": {
+        "description": "Unique DNS Name for the Public IP used to access the Virtual Machine."
+      }
+    },
+    "windowsOSVersion": {
+      "type": "string",
+      "defaultValue": "2016-Datacenter",
+      "allowedValues": [
+        "2008-R2-SP1",
+        "2012-Datacenter",
+        "2012-R2-Datacenter",
+        "2016-Nano-Server",
+        "2016-Datacenter-with-Containers",
+        "2016-Datacenter",
+        "2019-Datacenter"
+      ],
+      "metadata": {
+        "description": "The Windows version for the VM. This will pick a fully patched image of this given Windows version."
+      }
+    },
+    "vmSize": {
+      "type": "string",
+      "defaultValue": "Standard_D2_v3",
+      "allowedValues": [
+        "Standard_D2_v3",
+        "Standard_D3_v3"
+      ],
+      "metadata": {
+        "description": "Size of the virtual machine."
       }
     },
     "location": {
       "type": "string",
       "defaultValue": "UK South",
-      "metadata": {
-        "description": "Location for all resources."
-      },
       "allowedValues": [
         "UK South",
         "UK West",
         "West Europe"
-      ]
+      ],
+      "metadata": {
+        "description": "Location for all resources."
+      }
+    },
+    "virtualNetworkName": {
+      "type": "string",
+      "defaultValue": "",
+      "metadata": {
+        "description": "Choose a name for the new virtual network."
+      }
     }
   },
   "variables": {
-    "alwaysOn": "False",
-    "sku": "Free",
-    "skuCode": "F1",
-    "workerSize": "0",
-    "workerSizeId": "0",
-    "numberOfWorkers": "1",
-    "currentStack": "dotnet",
-    "netFrameworkVersion": "v4.0",
-    "hostingPlanName": "[concat('hpn-', resourceGroup().name)]",
-    "appInsight": "[concat('insights-', parameters('webAppName'))]"
+    "storageAccountName": "[concat(uniquestring(resourceGroup().id), 'storageacc')]",
+    "nicName": "[concat(parameters('vmName'), 'vmNIC')]",
+    "addressPrefix": "10.0.0.0/16",
+    "subnetName": "Default",
+    "subnetPrefix": "10.0.0.0/24",
+    "publicIPAddressName": "[concat(parameters('vmName'), 'vmPIP')]",
+    "subnetRef": "[resourceId('Microsoft.Network/virtualNetworks/subnets', parameters('virtualNetworkName'), variables('subnetName'))]",
+    "networkSecurityGroupName": "[concat(parameters('virtualNetworkName'), '-nsg')]"
   },
   "resources": [
     {
-      "apiVersion": "2018-02-01",
-      "name": "[parameters('webAppName')]",
-      "type": "Microsoft.Web/sites",
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2018-11-01",
+      "name": "[variables('storageAccountName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "Storage",
+      "properties": {}
+    },
+    {
+      "type": "Microsoft.Network/publicIPAddresses",
+      "apiVersion": "2018-11-01",
+      "name": "[variables('publicIPAddressName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "publicIPAllocationMethod": "Dynamic",
+        "dnsSettings": {
+          "domainNameLabel": "[parameters('dnsLabelPrefix')]"
+        }
+      }
+    },
+    {
+      "comments": "Default Network Security Group for template",
+      "type": "Microsoft.Network/networkSecurityGroups",
+      "apiVersion": "2019-08-01",
+      "name": "[variables('networkSecurityGroupName')]",
+      "location": "[parameters('location')]",
+      "properties": {
+        "securityRules": [
+          {
+            "name": "default-allow-3389",
+            "properties": {
+              "priority": "1000",
+              "access": "Allow",
+              "direction": "Inbound",
+              "destinationPortRange": "3389",
+              "protocol": "Tcp",
+              "sourcePortRange": "*",
+              "sourceAddressPrefix": "*",
+              "destinationAddressPrefix": "*"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "type": "Microsoft.Network/virtualNetworks",
+      "apiVersion": "2018-11-01",
+      "name": "[variables('virtualNetworkName')]",
       "location": "[parameters('location')]",
       "dependsOn": [
-        "[resourceId('Microsoft.Insights/components/', variables('appInsight'))]",
-        "[resourceId('Microsoft.Web/serverfarms/', variables('hostingPlanName'))]"
+        "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
       ],
       "properties": {
-        "name": "[parameters('webAppName')]",
-        "siteConfig": {
-          "appSettings": [
-            {
-              "name": "APPINSIGHTS_INSTRUMENTATIONKEY",
-              "value": "[reference(resourceId('microsoft.insights/components/', variables('appInsight')), '2018-05-01-preview').InstrumentationKey]"
-            },
-            {
-              "name": "ApplicationInsightsAgent_EXTENSION_VERSION",
-              "value": "~2"
-            },
-            {
-              "name": "XDT_MicrosoftApplicationInsights_Mode",
-              "value": "default"
-            },
-            {
-              "name": "DiagnosticServices_EXTENSION_VERSION",
-              "value": "disabled"
-            },
-            {
-              "name": "APPINSIGHTS_PROFILERFEATURE_VERSION",
-              "value": "disabled"
-            },
-            {
-              "name": "APPINSIGHTS_SNAPSHOTFEATURE_VERSION",
-              "value": "disabled"
-            },
-            {
-              "name": "InstrumentationEngine_EXTENSION_VERSION",
-              "value": "disabled"
-            },
-            {
-              "name": "SnapshotDebugger_EXTENSION_VERSION",
-              "value": "disabled"
-            },
-            {
-              "name": "XDT_MicrosoftApplicationInsights_BaseExtensions",
-              "value": "disabled"
-            }
-          ],
-          "metadata": [
-            {
-              "name": "CURRENT_STACK",
-              "value": "[variables('currentStack')]"
-            }
-          ],
-          "netFrameworkVersion": "[variables('netFrameworkVersion')]",
-          "alwaysOn": "[variables('alwaysOn')]"
+        "addressSpace": {
+          "addressPrefixes": [
+            "[variables('addressPrefix')]"
+          ]
         },
-        "serverFarmId": "[resourceId('Microsoft.Web/serverfarms', variables('hostingPlanName'))]",
-        "clientAffinityEnabled": "True"
+        "subnets": [
+          {
+            "name": "[variables('subnetName')]",
+            "properties": {
+              "addressPrefix": "[variables('subnetPrefix')]",
+              "networkSecurityGroup": {
+                "id": "[resourceId('Microsoft.Network/networkSecurityGroups', variables('networkSecurityGroupName'))]"
+              }
+            }
+          }
+        ]
       }
     },
     {
-      "apiVersion": "2018-02-01",
-      "name": "[variables('hostingPlanName')]",
-      "type": "Microsoft.Web/serverfarms",
+      "type": "Microsoft.Network/networkInterfaces",
+      "apiVersion": "2018-11-01",
+      "name": "[variables('nicName')]",
       "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Network/publicIPAddresses/', variables('publicIPAddressName'))]",
+        "[resourceId('Microsoft.Network/virtualNetworks/', variables('virtualNetworkName'))]"
+      ],
       "properties": {
-        "name": "[variables('hostingPlanName')]",
-        "workerSize": "[variables('workerSize')]",
-        "workerSizeId": "[variables('workerSizeId')]",
-        "numberOfWorkers": "[variables('numberOfWorkers')]"
-      },
-      "sku": {
-        "Tier": "[variables('sku')]",
-        "Name": "[variables('skuCode')]"
+        "ipConfigurations": [
+          {
+            "name": "ipconfig1",
+            "properties": {
+              "privateIPAllocationMethod": "Dynamic",
+              "publicIPAddress": {
+                "id": "[resourceId('Microsoft.Network/publicIPAddresses',variables('publicIPAddressName'))]"
+              },
+              "subnet": {
+                "id": "[variables('subnetRef')]"
+              }
+            }
+          }
+        ]
       }
     },
     {
-      "apiVersion": "2018-05-01-preview",
-      "name": "[variables('appInsight')]",
-      "type": "microsoft.insights/components",
+      "type": "Microsoft.Compute/virtualMachines",
+      "apiVersion": "2018-10-01",
+      "name": "[variables('vmName')]",
       "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/', variables('storageAccountName'))]",
+        "[resourceId('Microsoft.Network/networkInterfaces/', variables('nicName'))]"
+      ],
       "properties": {
-        "ApplicationId": "[parameters('webAppName')]"
+        "hardwareProfile": {
+          "vmSize": "[parameters('vmSize')]"
+        },
+        "osProfile": {
+          "computerName": "[variables('vmName')]",
+          "adminUsername": "[parameters('adminUsername')]",
+          "adminPassword": "[parameters('adminPassword')]"
+        },
+        "storageProfile": {
+          "imageReference": {
+            "publisher": "MicrosoftWindowsServer",
+            "offer": "WindowsServer",
+            "sku": "[parameters('windowsOSVersion')]",
+            "version": "latest"
+          },
+          "osDisk": {
+            "createOption": "FromImage"
+          },
+          "dataDisks": [
+            {
+              "diskSizeGB": "1023",
+              "lun": "0",
+              "createOption": "Empty"
+            }
+          ]
+        },
+        "networkProfile": {
+          "networkInterfaces": [
+            {
+              "id": "[resourceId('Microsoft.Network/networkInterfaces',variables('nicName'))]"
+            }
+          ]
+        },
+        "diagnosticsProfile": {
+          "bootDiagnostics": {
+            "enabled": "True",
+            "storageUri": "[reference(resourceId('Microsoft.Storage/storageAccounts/', variables('storageAccountName'))).primaryEndpoints.blob]"
+          }
+        }
       }
     }
-  ]
+  ],
+  "outputs": {
+    "hostname": {
+      "type": "string",
+      "value": "[reference(variables('publicIPAddressName')).dnsSettings.fqdn]"
+    }
+  }
 }
